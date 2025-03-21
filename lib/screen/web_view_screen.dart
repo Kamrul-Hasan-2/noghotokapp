@@ -67,6 +67,10 @@ class _WebViewPageState extends State<WebViewPage> {
       },
       child: SafeArea(
         child: Scaffold(
+          appBar: AppBar(
+            title: const Text('Noghotok'),
+            centerTitle: true,
+          ),
           body: Stack(
             children: [
               // The WebView widget

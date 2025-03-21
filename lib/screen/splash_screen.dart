@@ -71,6 +71,10 @@ class _SplashScreenState extends State<SplashScreen> {
         }
       },
       child: Scaffold(
+        appBar: AppBar(
+          backgroundColor: Colors.white,
+          toolbarHeight: 0,
+        ),
         body: Stack(
           children: [
             // WebView (always loaded but initially hidden)
