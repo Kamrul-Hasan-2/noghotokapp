@@ -1,7 +1,8 @@
-// splash_screen.dart
 import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:webview_flutter/webview_flutter.dart';
+import 'package:flutter/services.dart';
+import 'package:connectivity_plus/connectivity_plus.dart';
 
 class SplashScreen extends StatefulWidget {
   const SplashScreen({Key? key}) : super(key: key);
@@ -10,16 +11,107 @@ class SplashScreen extends StatefulWidget {
   State<SplashScreen> createState() => _SplashScreenState();
 }
 
-class _SplashScreenState extends State<SplashScreen> {
+class _SplashScreenState extends State<SplashScreen>
+    with SingleTickerProviderStateMixin {
   bool showSplash = true;
   late final WebViewController controller;
   bool isWebViewLoading = true;
+  bool isWebViewReady = false;
+  late AnimationController _animationController;
+  late Animation<double> _fadeInAnimation;
+  late Animation<double> _scaleAnimation;
+
+  // Add network connectivity related variables
+  final Connectivity _connectivity = Connectivity();
+  late StreamSubscription<List<ConnectivityResult>> _connectivitySubscription;
+  bool _isConnected = true;
+  bool _isRetrying = false;
 
   @override
   void initState() {
     super.initState();
 
-    // Initialize WebViewController immediately
+    // Set system UI overlay style
+    SystemChrome.setSystemUIOverlayStyle(
+      const SystemUiOverlayStyle(
+        statusBarColor: Colors.transparent,
+        statusBarIconBrightness: Brightness.dark,
+      ),
+    );
+
+    // Animation controller setup
+    _animationController = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 1500),
+    );
+
+    _fadeInAnimation = Tween<double>(begin: 0.0, end: 1.0).animate(
+      CurvedAnimation(
+        parent: _animationController,
+        curve: const Interval(0.0, 0.5, curve: Curves.easeIn),
+      ),
+    );
+
+    _scaleAnimation = Tween<double>(begin: 0.8, end: 1.0).animate(
+      CurvedAnimation(
+        parent: _animationController,
+        curve: const Interval(0.2, 0.8, curve: Curves.easeOutBack),
+      ),
+    );
+
+    _animationController.forward();
+
+    // Check initial connectivity and initialize listener
+    _checkConnectivity();
+    _connectivitySubscription = _connectivity.onConnectivityChanged.listen(_updateConnectionStatus);
+
+    // Initialize WebView after checking connectivity
+    _initializeWebView();
+
+    // Fallback timer in case WebView takes too long
+    Timer(const Duration(seconds: 5), () {
+      if (mounted && showSplash) {
+        setState(() {
+          showSplash = false;
+        });
+      }
+    });
+  }
+
+  // Check current connectivity status
+  Future<void> _checkConnectivity() async {
+    late List<ConnectivityResult> results;
+    try {
+      results = await _connectivity.checkConnectivity();
+    } on PlatformException catch (e) {
+      debugPrint('Couldn\'t check connectivity status: ${e.toString()}');
+      return;
+    }
+
+    _updateConnectionStatus(results);
+  }
+
+  // Update connection status based on connectivity result
+  void _updateConnectionStatus(List<ConnectivityResult> results) {
+    setState(() {
+      // Consider connected if any result is not "none"
+      _isConnected = results.any((result) => result != ConnectivityResult.none);
+    });
+
+    // If connection is restored, retry loading the WebView
+    if (_isConnected && _isRetrying) {
+      _initializeWebView();
+      _isRetrying = false;
+    }
+  }
+
+  // Initialize the WebView controller
+  void _initializeWebView() {
+    if (!_isConnected) {
+      _isRetrying = true;
+      return;
+    }
+
     controller = WebViewController()
       ..setJavaScriptMode(JavaScriptMode.unrestricted)
       ..setBackgroundColor(const Color(0x00000000))
@@ -33,27 +125,53 @@ class _SplashScreenState extends State<SplashScreen> {
           onPageFinished: (String url) {
             setState(() {
               isWebViewLoading = false;
+              isWebViewReady = true;
+            });
+
+            // Only hide splash screen when WebView is ready
+            Timer(const Duration(seconds:1), () {
+              if (mounted && isWebViewReady) {
+                setState(() {
+                  showSplash = false;
+                });
+              }
             });
           },
           onWebResourceError: (WebResourceError error) {
             debugPrint('WebView error: ${error.description}');
+            setState(() {
+              isWebViewLoading = false;
+            });
           },
         ),
       )
       ..loadRequest(Uri.parse('https://noghotok.com/'));
+  }
 
-    // Set timer to hide splash screen
-    Timer(const Duration(seconds: 3), () {
-      if (mounted) {
-        setState(() {
-          showSplash = false;
-        });
-      }
+  @override
+  void dispose() {
+    _animationController.dispose();
+    _connectivitySubscription.cancel();
+    super.dispose();
+  }
+
+  // Retry loading the WebView
+  void _retryConnection() {
+    setState(() {
+      isWebViewLoading = true;
+      isWebViewReady = false;
     });
+
+    _checkConnectivity();
+    if (_isConnected) {
+      _initializeWebView();
+    }
   }
 
   @override
   Widget build(BuildContext context) {
+    final size = MediaQuery.of(context).size;
+
     return PopScope(
       canPop: false,
       onPopInvoked: (didPop) async {
@@ -78,59 +196,235 @@ class _SplashScreenState extends State<SplashScreen> {
         body: Stack(
           children: [
             // WebView (always loaded but initially hidden)
-            Visibility(
-              visible: !showSplash,
-              maintainState: true,
-              child: WebViewWidget(controller: controller),
-            ),
+            if (_isConnected)
+              Visibility(
+                visible: !showSplash,
+                maintainState: true,
+                child: WebViewWidget(controller: controller),
+              ),
 
             // Splash screen overlay
             if (showSplash)
+              Container(
+                decoration: BoxDecoration(
+                  gradient: LinearGradient(
+                    begin: Alignment.topCenter,
+                    end: Alignment.bottomCenter,
+                    colors: [
+                      Colors.white,
+                      Colors.blue.shade50,
+                      Colors.blue.shade100,
+                    ],
+                  ),
+                ),
+                child: Center(
+                  child: Column(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      // App logo with animation
+                      Expanded(
+                        flex: 3,
+                        child: Center(
+                          child: AnimatedBuilder(
+                            animation: _animationController,
+                            builder: (context, child) {
+                              return Transform.scale(
+                                scale: _scaleAnimation.value,
+                                child: Opacity(
+                                  opacity: _fadeInAnimation.value,
+                                  child: Container(
+                                    width: size.width * 0.5,
+                                    height: size.width * 0.5,
+                                    decoration: BoxDecoration(
+                                      boxShadow: [
+                                        BoxShadow(
+                                          color: Colors.blue.withOpacity(0.2),
+                                          blurRadius: 20,
+                                          spreadRadius: 2,
+                                        ),
+                                      ],
+                                    ),
+                                    child: Image.asset(
+                                      'assets/noghotok-logo-bn.png',
+                                      fit: BoxFit.contain,
+                                      errorBuilder:
+                                          (context, error, stackTrace) {
+                                        return Container(
+                                          decoration: BoxDecoration(
+                                            color: Colors.white,
+                                            shape: BoxShape.circle,
+                                            boxShadow: [
+                                              BoxShadow(
+                                                color: Colors.blue
+                                                    .withOpacity(0.2),
+                                                blurRadius: 15,
+                                                spreadRadius: 1,
+                                              ),
+                                            ],
+                                          ),
+                                          child: Icon(
+                                            Icons.language,
+                                            size: size.width * 0.3,
+                                            color: Colors.blue.shade700,
+                                          ),
+                                        );
+                                      },
+                                    ),
+                                  ),
+                                ),
+                              );
+                            },
+                          ),
+                        ),
+                      ),
+
+                      const SizedBox(height: 20),
+
+                      // App name with elegance
+                      AnimatedBuilder(
+                        animation: _animationController,
+                        builder: (context, child) {
+                          return Opacity(
+                            opacity: _fadeInAnimation.value,
+                            child: Text(
+                              'Noghotok',
+                              style: TextStyle(
+                                fontSize: 32,
+                                fontWeight: FontWeight.w600,
+                                color: Colors.blue.shade800,
+                                letterSpacing: 1.2,
+                              ),
+                            ),
+                          );
+                        },
+                      ),
+
+                      const SizedBox(height: 10),
+
+                      // Tagline or connectivity status message
+                      AnimatedBuilder(
+                        animation: _animationController,
+                        builder: (context, child) {
+                          return Opacity(
+                            opacity: _fadeInAnimation.value * 0.7,
+                            child: Text(
+                              _isConnected
+                                  ? "Don't Patient Please Wait"
+                                  : "No Internet Connection",
+                              style: TextStyle(
+                                fontSize: 16,
+                                fontWeight: FontWeight.w400,
+                                color: _isConnected
+                                    ? Colors.blue.shade600
+                                    : Colors.red.shade600,
+                                letterSpacing: 0.5,
+                              ),
+                            ),
+                          );
+                        },
+                      ),
+
+                      // Show retry button if there's no connection
+                      if (!_isConnected)
+                        Padding(
+                          padding: const EdgeInsets.only(top: 20),
+                          child: ElevatedButton(
+                            onPressed: _retryConnection,
+                            style: ElevatedButton.styleFrom(
+                              backgroundColor: Colors.blue.shade600,
+                              foregroundColor: Colors.white,
+                              padding: const EdgeInsets.symmetric(
+                                  horizontal: 24, vertical: 12),
+                              shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(30),
+                              ),
+                            ),
+                            child: const Text('Retry Connection'),
+                          ),
+                        ),
+
+                      // Custom progress indicator that doesn't look like a loader
+                      const SizedBox(height: 40),
+                      AnimatedBuilder(
+                        animation: _animationController,
+                        builder: (context, child) {
+                          return Opacity(
+                            opacity: _fadeInAnimation.value * 0.8,
+                            child: Row(
+                              mainAxisAlignment: MainAxisAlignment.center,
+                              children: List.generate(
+                                5,
+                                    (index) => Container(
+                                  margin:
+                                  const EdgeInsets.symmetric(horizontal: 4),
+                                  width: 8,
+                                  height: 8,
+                                  decoration: BoxDecoration(
+                                    shape: BoxShape.circle,
+                                    color: Colors.blue
+                                        .withOpacity(0.5 + index * 0.1),
+                                  ),
+                                ),
+                              ),
+                            ),
+                          );
+                        },
+                      ),
+
+                      Expanded(flex: 2, child: Container()),
+                    ],
+                  ),
+                ),
+              ),
+
+            // No connection overlay when not in splash screen
+            if (!_isConnected && !showSplash)
               Container(
                 color: Colors.white,
                 child: Center(
                   child: Column(
                     mainAxisAlignment: MainAxisAlignment.center,
                     children: [
-                      Image.asset(
-                        'assets/noghotok-logo-bn.png',
-                        width: 200,
-                        height: 200,
-                        errorBuilder: (context, error, stackTrace) {
-                          return Container(
-                            width: 200,
-                            height: 200,
-                            color: Colors.blue.shade100,
-                            child: const Icon(
-                              Icons.language,
-                              size: 100,
-                              color: Colors.blue,
-                            ),
-                          );
-                        },
+                      Icon(
+                        Icons.wifi_off,
+                        size: 80,
+                        color: Colors.grey.shade600,
                       ),
                       const SizedBox(height: 20),
-                      const CircularProgressIndicator(
-                        valueColor: AlwaysStoppedAnimation<Color>(Colors.blue),
-                      ),
-                      const SizedBox(height: 20),
-                      const Text(
-                        'Noghotok',
+                      Text(
+                        'No Internet Connection',
                         style: TextStyle(
-                          fontSize: 24,
+                          fontSize: 20,
                           fontWeight: FontWeight.bold,
-                          color: Colors.blue,
+                          color: Colors.grey.shade800,
                         ),
+                      ),
+                      const SizedBox(height: 10),
+                      Text(
+                        'Please check your connection and try again',
+                        style: TextStyle(
+                          fontSize: 16,
+                          color: Colors.grey.shade600,
+                        ),
+                        textAlign: TextAlign.center,
+                      ),
+                      const SizedBox(height: 30),
+                      ElevatedButton(
+                        onPressed: _retryConnection,
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: Colors.blue.shade600,
+                          foregroundColor: Colors.white,
+                          padding: const EdgeInsets.symmetric(
+                              horizontal: 24, vertical: 12),
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(30),
+                          ),
+                        ),
+                        child: const Text('Retry Connection'),
                       ),
                     ],
                   ),
                 ),
-              ),
-
-            // WebView loading indicator (shown only when splash is hidden)
-            if (!showSplash && isWebViewLoading)
-              const Center(
-                child: CircularProgressIndicator(),
               ),
           ],
         ),
