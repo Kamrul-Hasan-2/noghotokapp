@@ -1,6 +1,4 @@
 import 'dart:convert';
-import 'package:bdstall_mobile_app/app_config.dart';
-import 'package:bdstall_mobile_app/utils/api_constants.dart';
 import 'package:http/http.dart' as http;
 import 'package:package_info_plus/package_info_plus.dart';
 
@@ -43,14 +41,13 @@ class VersionCheckService {
         'm': versionParts.isNotEmpty ? versionParts[0] : '0',
         'n': versionParts.length > 1 ? versionParts[1] : '0',
         'p': versionParts.length > 2 ? versionParts[2] : '0',
-        'key': ApiConstants.API_KEY,
       };
 
       print('Sending version params: $params'); // Debug log
 
       final response = await http.get(
         Uri.parse(
-            '${AppConfig.shared.baseUrl}/latest_version/${ApiConstants.API_KEY}')
+            'https://noghotok.com/api/item/latest_version/?key=nods787db38ss8dghotok')
             .replace(queryParameters: params),
       );
 

@@ -1,8 +1,12 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+import 'package:url_launcher/url_launcher.dart';
 import 'package:webview_flutter/webview_flutter.dart';
 import 'package:flutter/services.dart';
 import 'package:connectivity_plus/connectivity_plus.dart';
+
+import '../service/version_check_service.dart';
 
 class SplashScreen extends StatefulWidget {
   const SplashScreen({Key? key}) : super(key: key);
@@ -27,9 +31,15 @@ class _SplashScreenState extends State<SplashScreen>
   bool _isConnected = true;
   bool _isRetrying = false;
 
+  final String _playStoreUrl =
+      'https://play.google.com/store/apps/details?id=com.bdstall.bdstall_app';
+  String _currentVersion = 'Loading...';
+
+
   @override
   void initState() {
     super.initState();
+    _initializeVersionCheck();
 
     // Set system UI overlay style
     SystemChrome.setSystemUIOverlayStyle(
@@ -76,6 +86,126 @@ class _SplashScreenState extends State<SplashScreen>
         });
       }
     });
+  }
+
+  Future<void> _initializeVersionCheck() async {
+    await _loadVersionInfo();
+    await _checkForUpdates();
+  }
+
+  Future<void> _loadVersionInfo() async {
+    final version = await VersionCheckService.getCleanVersion();
+    setState(() => _currentVersion = version);
+  }
+
+  Future<bool> _isUpdateDismissed() async {
+    final prefs = await SharedPreferences.getInstance();
+    return prefs.getBool('updateDismissed') ?? false;
+  }
+
+  Future<void> _setUpdateDismissed() async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool('updateDismissed', true);
+  }
+
+  Future<void> _checkForUpdates() async {
+    final versionCheck = await VersionCheckService.checkVersion();
+    if (versionCheck != null) {
+      _handleVersionResponse(versionCheck);
+    }
+  }
+
+  void _handleVersionResponse(VersionCheckModel versionCheck) async {
+    print(
+        'Version check results - M: ${versionCheck.m}, N: ${versionCheck.n}, P: ${versionCheck.p}');
+
+    if (versionCheck.m) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        _showForceUpdateDialog();
+      });
+    } else if (versionCheck.n || versionCheck.p) {
+      bool isDismissed = await _isUpdateDismissed();
+      if (!isDismissed) {
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          _showOptionalUpdateDialog();
+        });
+      }
+    }
+  }
+
+  void _showForceUpdateDialog() {
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (context) => AlertDialog(
+        title: const Text('New Update Required'),
+        content: const Text('You must update to the new version'),
+        actions: [
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(
+              backgroundColor: Colors.green,
+            ),
+            onPressed: _launchPlayStore,
+            child: const Text('Update Now', style: TextStyle(
+                color: Colors.white,
+                fontSize: 16,
+                fontWeight: FontWeight.w600
+            ),),
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _showOptionalUpdateDialog() {
+    showDialog(
+      context: context,
+      barrierDismissible: true,
+      builder: (context) => AlertDialog(
+        title: const Text('New Version Available'),
+        content: const Text('Updating to the new version will provide a better experience'),
+        actions: [
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(
+              backgroundColor: Colors.green,
+            ),
+            onPressed: () {
+              _setUpdateDismissed(); // Save preference
+              Navigator.pop(context);
+            },
+            child: const Text('Later', style: TextStyle(
+                color: Colors.white,
+                fontSize: 16,
+                fontWeight: FontWeight.w600
+            ),),
+          ),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(
+              backgroundColor: Colors.red,
+            ),
+            onPressed: () {
+              _launchPlayStore();
+              Navigator.pop(context);
+            },
+            child: const Text('Update', style: TextStyle(
+                color: Colors.white,
+                fontSize: 16,
+                fontWeight: FontWeight.w600
+            ),),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Future<void> _launchPlayStore() async {
+    try {
+      if (await canLaunch(_playStoreUrl)) {
+        await launch(_playStoreUrl);
+      }
+    } catch (e) {
+      print('Error opening Play Store: $e');
+    }
   }
 
   // Check current connectivity status
