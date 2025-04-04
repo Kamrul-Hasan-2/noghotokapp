@@ -37,24 +37,27 @@ class VersionCheckService {
       final cleanVersion = await getCleanVersion();
       final versionParts = cleanVersion.split('.');
 
-      final params = {
+      // Build query parameters with the correct order and structure
+      final queryParams = {
         'm': versionParts.isNotEmpty ? versionParts[0] : '0',
         'n': versionParts.length > 1 ? versionParts[1] : '0',
         'p': versionParts.length > 2 ? versionParts[2] : '0',
+        'key': 'nods787db38ss8dghotok' // Key needs to be a query parameter
       };
 
-      print('Sending version params: $params'); // Debug log
+      final uri = Uri.parse('https://noghotok.com/api/item/latest_version/');
+      final url = uri.replace(queryParameters: queryParams);
 
-      final response = await http.get(
-        Uri.parse(
-            'https://noghotok.com/api/item/latest_version/?key=nods787db38ss8dghotok')
-            .replace(queryParameters: params),
-      );
+      print('Request URL: $url'); // Debug log
 
-      print('API response: ${response.body}'); // Debug log
+      final response = await http.get(url);
+      print('API response status: ${response.statusCode}');
+      print('API response body: ${response.body}');
 
       if (response.statusCode == 200) {
         final decodedResponse = json.decode(response.body);
+
+        // The response is definitely a list based on your example
         if (decodedResponse is List && decodedResponse.isNotEmpty) {
           return VersionCheckModel.fromJson(decodedResponse.first);
         }

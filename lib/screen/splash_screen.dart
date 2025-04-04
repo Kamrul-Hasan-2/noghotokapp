@@ -32,7 +32,7 @@ class _SplashScreenState extends State<SplashScreen>
   bool _isRetrying = false;
 
   final String _playStoreUrl =
-      'https://play.google.com/store/apps/details?id=com.bdstall.bdstall_app';
+      'https://play.google.com/store/apps/details?id=com.example.noghotokapp';
   String _currentVersion = 'Loading...';
 
 
@@ -115,21 +115,23 @@ class _SplashScreenState extends State<SplashScreen>
     }
   }
 
-  void _handleVersionResponse(VersionCheckModel versionCheck) async {
-    print(
-        'Version check results - M: ${versionCheck.m}, N: ${versionCheck.n}, P: ${versionCheck.p}');
+  void _handleVersionResponse(VersionCheckModel versionCheck) {
+    print('Version check results - M: ${versionCheck.m}, N: ${versionCheck.n}, P: ${versionCheck.p}');
 
     if (versionCheck.m) {
+      // Force update required
       WidgetsBinding.instance.addPostFrameCallback((_) {
         _showForceUpdateDialog();
       });
     } else if (versionCheck.n || versionCheck.p) {
-      bool isDismissed = await _isUpdateDismissed();
-      if (!isDismissed) {
-        WidgetsBinding.instance.addPostFrameCallback((_) {
-          _showOptionalUpdateDialog();
-        });
-      }
+      // Optional update available
+      _isUpdateDismissed().then((isDismissed) {
+        if (!isDismissed) {
+          WidgetsBinding.instance.addPostFrameCallback((_) {
+            _showOptionalUpdateDialog();
+          });
+        }
+      });
     }
   }
 
